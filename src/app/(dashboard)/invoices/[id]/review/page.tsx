@@ -1,23 +1,20 @@
 'use client';
 
-import dynamic from 'next/dynamic';
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import { Topbar } from '@/components/layout/Topbar';
 import { Button } from '@/components/common/Button';
+import { Badge } from '@/components/common/Badge';
 import { InvoiceEditForm } from '@/components/invoice/InvoiceEditForm';
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft, ExternalLink } from 'lucide-react';
 import { ROUTES } from '@/constants/routes';
+import { useInvoice, useSaveInvoice } from '@/features/invoice/hooks/useInvoices';
+import { driveService } from '@/services/google/drive/DriveService';
 import type { InvoiceReviewForm } from '@/features/invoice/types/review';
+import type { Invoice } from '@/types';
 
-// react-pdf is client-side only — dynamic import with SSR disabled
-const PDFViewer = dynamic(
-  () => import('@/components/invoice/PDFViewer').then((m) => m.PDFViewer),
-  { ssr: false, loading: () => <PDFViewerSkeleton /> },
-);
-
-function PDFViewerSkeleton() {
+function PDFSkeleton() {
   return (
     <div className="flex h-full items-center justify-center rounded-card border border-gray-100 bg-gray-50">
       <div className="h-8 w-8 animate-spin rounded-full border-2 border-brand border-t-transparent" />
@@ -25,126 +22,153 @@ function PDFViewerSkeleton() {
   );
 }
 
-const MOCK_DEFAULT: Partial<InvoiceReviewForm> = {
-  courier: 'fedex',
-  invoiceNumber: '',
-  invoiceDate: '',
-  currency: 'USD',
-  shipper: {
-    name: '',
-    company: null,
-    address1: '',
-    address2: null,
-    city: '',
-    state: null,
-    postalCode: '',
-    country: '',
-    phone: null,
-  },
-  consignee: {
-    name: '',
-    company: null,
-    address1: '',
-    address2: null,
-    city: '',
-    state: null,
-    postalCode: '',
-    country: '',
-    phone: null,
-  },
-  packages: [
-    {
-      trackingNumber: '',
-      weight: 0,
-      weightUnit: 'kg',
-      dimensions: null,
-      serviceType: null,
-      pieces: 1,
-    },
-  ],
-  charges: [],
-  totalCharge: 0,
-};
-
 interface ReviewPageProps {
   params: { id: string };
 }
 
 export default function ReviewPage({ params }: ReviewPageProps) {
   const router = useRouter();
-  const [isSaving, setIsSaving] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
 
-  // Phase 2: load real data from store/query using params.id
-  const pdfFile: File | null = null;
+  const { data: invoice, isLoading, isError } = useInvoice(params.id);
+  const { mutateAsync: saveInvoice, isPending: isSaving } = useSaveInvoice();
 
-  const handleSave = async (_data: InvoiceReviewForm) => {
-    setIsSaving(true);
-    try {
-      await new Promise((r) => setTimeout(r, 800));
-      toast.success('Invoice saved successfully');
-    } catch {
-      toast.error('Failed to save invoice');
-    } finally {
-      setIsSaving(false);
-    }
+  const buildInvoiceFromForm = (data: InvoiceReviewForm): Invoice => ({
+    id:            params.id,
+    status:        invoice?.status ?? 'reviewed',
+    version:       (invoice?.version ?? 0) + 1,
+    pdfUrl:        invoice?.pdfUrl ?? null,
+    excelUrl:      invoice?.excelUrl ?? null,
+    extractedAt:   invoice?.extractedAt ?? new Date().toISOString(),
+    createdAt:     invoice?.createdAt   ?? new Date().toISOString(),
+    updatedAt:     new Date().toISOString(),
+    ...data,
+  });
+
+  const handleSave = async (data: InvoiceReviewForm) => {
+    const inv = buildInvoiceFromForm(data);
+    await saveInvoice(inv);
   };
 
-  const handleExport = async (_data: InvoiceReviewForm) => {
+  const handleExport = async (data: InvoiceReviewForm) => {
     setIsExporting(true);
     try {
-      await new Promise((r) => setTimeout(r, 1000));
+      // Dynamic import — ExcelJS runs client-side
+      const { excelService } = await import('@/services/excel/ExcelService');
+      const inv = buildInvoiceFromForm({ ...data, status: 'exported' } as unknown as InvoiceReviewForm & { status: Invoice['status'] });
+
+      const buffer = await excelService.generateInvoiceExcel({ ...inv, ...data } as Invoice);
+
+      // 1. Trigger browser download immediately
+      const fileName = `invoice-${data.invoiceNumber || params.id}.xlsx`;
+      excelService.triggerBrowserDownload(buffer, fileName);
+
+      // 2. Upload to Drive (non-blocking, best-effort)
+      const base64 = excelService.bufferToBase64(buffer);
+      driveService.uploadExcel(base64, fileName)
+        .then((result) => {
+          // Update invoice with excelUrl
+          const updatedInv = buildInvoiceFromForm(data);
+          saveInvoice({ ...updatedInv, excelUrl: result.webViewLink, status: 'exported' })
+            .catch(() => {/* non-critical */});
+        })
+        .catch(() => toast.warning('Excel generated but Drive upload failed'));
+
       toast.success('Excel exported successfully');
-    } catch {
-      toast.error('Failed to export Excel');
+    } catch (err) {
+      toast.error('Export failed: ' + (err instanceof Error ? err.message : 'Unknown'));
     } finally {
       setIsExporting(false);
     }
   };
 
+  // Build form default values from loaded invoice
+  const defaultValues = invoice
+    ? {
+        courier:       invoice.courier,
+        invoiceNumber: invoice.invoiceNumber,
+        invoiceDate:   invoice.invoiceDate,
+        currency:      invoice.currency,
+        shipper:       invoice.shipper,
+        consignee:     invoice.consignee,
+        packages:      invoice.packages.length > 0 ? invoice.packages : [
+          { trackingNumber: '', weight: 0, weightUnit: 'kg' as const, dimensions: null, serviceType: null, pieces: 1 }
+        ],
+        charges:       invoice.charges,
+        totalCharge:   invoice.totalCharge,
+      }
+    : {
+        courier:       'fedex' as const,
+        invoiceNumber: '',
+        invoiceDate:   '',
+        currency:      'USD',
+        shipper:       { name: '', company: null, address1: '', address2: null, city: '', state: null, postalCode: '', country: '', phone: null },
+        consignee:     { name: '', company: null, address1: '', address2: null, city: '', state: null, postalCode: '', country: '', phone: null },
+        packages:      [{ trackingNumber: '', weight: 0, weightUnit: 'kg' as const, dimensions: null, serviceType: null, pieces: 1 }],
+        charges:       [],
+        totalCharge:   0,
+      };
+
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
       <Topbar
-        title={`Review Invoice`}
+        title="Review Invoice"
         actions={
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => router.push(ROUTES.invoices)}
-          >
-            <ArrowLeft className="h-4 w-4" />
-            Back
-          </Button>
+          <div className="flex items-center gap-3">
+            {invoice && <Badge status={invoice.status} />}
+            {invoice?.excelUrl && (
+              <a
+                href={invoice.excelUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-1 text-[13px] font-medium text-brand hover:underline"
+              >
+                View Excel <ExternalLink className="h-3.5 w-3.5" />
+              </a>
+            )}
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => router.push(ROUTES.invoices)}
+            >
+              <ArrowLeft className="h-4 w-4" />
+              Back
+            </Button>
+          </div>
         }
       />
 
-      {/* Side-by-side layout */}
-      <div className="flex flex-1 gap-0 overflow-hidden">
-        {/* PDF Viewer — left 45% */}
-        <div className="w-[45%] shrink-0 overflow-hidden border-r border-gray-100 p-4">
-          {pdfFile ? (
-            <PDFViewer file={pdfFile} className="h-full" />
-          ) : (
-            <div className="flex h-full flex-col items-center justify-center rounded-card border-2 border-dashed border-gray-200 bg-gray-50">
-              <p className="text-[14px] font-medium text-gray-400">PDF Preview</p>
-              <p className="mt-1 text-[12px] text-gray-300">
-                Available after upload — Invoice #{params.id}
-              </p>
-            </div>
-          )}
+      {isLoading && (
+        <div className="flex flex-1 items-center justify-center">
+          <div className="h-8 w-8 animate-spin rounded-full border-2 border-brand border-t-transparent" />
         </div>
+      )}
 
-        {/* Invoice Edit Form — right 55% */}
-        <div className="flex flex-1 flex-col overflow-hidden">
-          <InvoiceEditForm
-            defaultValues={MOCK_DEFAULT}
-            onSave={handleSave}
-            onExport={handleExport}
-            isSaving={isSaving}
-            isExporting={isExporting}
-          />
+      {isError && (
+        <div className="flex flex-1 items-center justify-center text-danger">
+          Failed to load invoice. Check GAS connection.
         </div>
-      </div>
+      )}
+
+      {(!isLoading) && (
+        <div className="flex flex-1 gap-0 overflow-hidden">
+          {/* PDF Viewer — left 45% */}
+          <div className="w-[45%] shrink-0 overflow-hidden border-r border-gray-100 p-4">
+            <PDFSkeleton />
+          </div>
+
+          {/* Invoice Edit Form — right 55% */}
+          <div className="flex flex-1 flex-col overflow-hidden">
+            <InvoiceEditForm
+              defaultValues={defaultValues}
+              onSave={handleSave}
+              onExport={handleExport}
+              isSaving={isSaving}
+              isExporting={isExporting}
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }
