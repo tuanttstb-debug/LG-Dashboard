@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { toast } from 'sonner';
 import { Topbar } from '@/components/layout/Topbar';
 import { Button } from '@/components/common/Button';
@@ -22,26 +22,25 @@ function PDFSkeleton() {
   );
 }
 
-interface ReviewPageProps {
-  params: { id: string };
-}
-
-export default function ReviewPage({ params }: ReviewPageProps) {
+export function ReviewClient() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const id = searchParams.get('id') ?? '';
+
   const [isExporting, setIsExporting] = useState(false);
 
-  const { data: invoice, isLoading, isError } = useInvoice(params.id);
+  const { data: invoice, isLoading, isError } = useInvoice(id);
   const { mutateAsync: saveInvoice, isPending: isSaving } = useSaveInvoice();
 
   const buildInvoiceFromForm = (data: InvoiceReviewForm): Invoice => ({
-    id:            params.id,
-    status:        invoice?.status ?? 'reviewed',
-    version:       (invoice?.version ?? 0) + 1,
-    pdfUrl:        invoice?.pdfUrl ?? null,
-    excelUrl:      invoice?.excelUrl ?? null,
-    extractedAt:   invoice?.extractedAt ?? new Date().toISOString(),
-    createdAt:     invoice?.createdAt   ?? new Date().toISOString(),
-    updatedAt:     new Date().toISOString(),
+    id,
+    status:      invoice?.status ?? 'reviewed',
+    version:     (invoice?.version ?? 0) + 1,
+    pdfUrl:      invoice?.pdfUrl ?? null,
+    excelUrl:    invoice?.excelUrl ?? null,
+    extractedAt: invoice?.extractedAt ?? new Date().toISOString(),
+    createdAt:   invoice?.createdAt   ?? new Date().toISOString(),
+    updatedAt:   new Date().toISOString(),
     ...data,
   });
 
@@ -53,21 +52,17 @@ export default function ReviewPage({ params }: ReviewPageProps) {
   const handleExport = async (data: InvoiceReviewForm) => {
     setIsExporting(true);
     try {
-      // Dynamic import — ExcelJS runs client-side
       const { excelService } = await import('@/services/excel/ExcelService');
       const inv = buildInvoiceFromForm({ ...data, status: 'exported' } as unknown as InvoiceReviewForm & { status: Invoice['status'] });
 
       const buffer = await excelService.generateInvoiceExcel({ ...inv, ...data } as Invoice);
 
-      // 1. Trigger browser download immediately
-      const fileName = `invoice-${data.invoiceNumber || params.id}.xlsx`;
+      const fileName = `invoice-${data.invoiceNumber || id}.xlsx`;
       excelService.triggerBrowserDownload(buffer, fileName);
 
-      // 2. Upload to Drive (non-blocking, best-effort)
       const base64 = excelService.bufferToBase64(buffer);
       driveService.uploadExcel(base64, fileName)
         .then((result) => {
-          // Update invoice with excelUrl
           const updatedInv = buildInvoiceFromForm(data);
           saveInvoice({ ...updatedInv, excelUrl: result.webViewLink, status: 'exported' })
             .catch(() => {/* non-critical */});
@@ -82,7 +77,14 @@ export default function ReviewPage({ params }: ReviewPageProps) {
     }
   };
 
-  // Build form default values from loaded invoice
+  if (!id) {
+    return (
+      <div className="flex flex-1 items-center justify-center text-gray-500">
+        No invoice selected.
+      </div>
+    );
+  }
+
   const defaultValues = invoice
     ? {
         courier:       invoice.courier,
@@ -150,14 +152,12 @@ export default function ReviewPage({ params }: ReviewPageProps) {
         </div>
       )}
 
-      {(!isLoading) && (
+      {!isLoading && (
         <div className="flex flex-1 gap-0 overflow-hidden">
-          {/* PDF Viewer — left 45% */}
           <div className="w-[45%] shrink-0 overflow-hidden border-r border-gray-100 p-4">
             <PDFSkeleton />
           </div>
 
-          {/* Invoice Edit Form — right 55% */}
           <div className="flex flex-1 flex-col overflow-hidden">
             <InvoiceEditForm
               defaultValues={defaultValues}

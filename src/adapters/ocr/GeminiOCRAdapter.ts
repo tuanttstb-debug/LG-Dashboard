@@ -37,7 +37,7 @@ Output the raw text content only.`;
 
     const filePart = {
       inlineData: {
-        data: request.fileBuffer.toString('base64'),
+        data: request.fileBase64,
         mimeType: request.mimeType as 'application/pdf',
       },
     };

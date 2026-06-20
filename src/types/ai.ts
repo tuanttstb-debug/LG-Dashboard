@@ -23,7 +23,7 @@ export interface OCRResult {
 }
 
 export interface AIExtractionRequest {
-  fileBuffer: Buffer;
+  fileBase64: string;
   fileName: string;
   mimeType: string;
   courierHint?: string | null;

@@ -57,7 +57,8 @@ class GASClient {
       try {
         const res = await fetch(url, {
           method,
-          headers: { 'Content-Type': 'application/json' },
+          // text/plain avoids CORS preflight (GAS doesn't handle OPTIONS)
+          headers: method === 'POST' ? { 'Content-Type': 'text/plain' } : {},
           body,
         });
 

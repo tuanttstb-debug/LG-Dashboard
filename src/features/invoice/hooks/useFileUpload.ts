@@ -3,8 +3,17 @@
 import { useState, useCallback } from 'react';
 import { toast } from 'sonner';
 import { generateId } from '@/lib/utils';
+import { aiService } from '@/services/ai/AIService';
 import type { UploadFile } from '../types/upload';
-import type { APIResponse, ExtractionResult, Invoice } from '@/types';
+import type { Invoice } from '@/types';
+
+const fileToBase64 = (file: File): Promise<string> =>
+  new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve((reader.result as string).split(',')[1] ?? '');
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
 
 const MAX_FILES = 20;
 const MAX_SIZE_MB = 20;
@@ -71,30 +80,25 @@ export function useFileUpload() {
     async (uploadFile: UploadFile): Promise<void> => {
       updateFile(uploadFile.id, { status: 'uploading', progress: 10 });
 
-      const formData = new FormData();
-      formData.append('file', uploadFile.file);
-      if (uploadFile.courierHint) {
-        formData.append('courierHint', uploadFile.courierHint);
-      }
-
       try {
         updateFile(uploadFile.id, { progress: 40, status: 'processing' });
 
-        const res = await fetch('/api/ai/extract', {
-          method: 'POST',
-          body: formData,
+        const fileBase64 = await fileToBase64(uploadFile.file);
+        const result = await aiService.extractFromPDF({
+          fileBase64,
+          fileName: uploadFile.file.name,
+          mimeType: uploadFile.file.type,
+          courierHint: uploadFile.courierHint,
         });
 
-        const json = (await res.json()) as APIResponse<ExtractionResult<Partial<Invoice>[]>>;
-
-        if (!res.ok || !json.success) {
-          throw new Error(json.error?.message ?? 'Extraction failed');
+        if (!result.success) {
+          throw new Error(result.error?.message ?? 'Extraction failed');
         }
 
         updateFile(uploadFile.id, {
           status: 'done',
           progress: 100,
-          result: json.data?.data ?? [],
+          result: (result.data ?? []) as Partial<Invoice>[],
         });
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Unknown error';
