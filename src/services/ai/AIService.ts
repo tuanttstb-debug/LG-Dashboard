@@ -1,6 +1,9 @@
 import type { Invoice, AIExtractionRequest, ExtractionResult } from '@/types';
 import type { OCRAdapter } from '@/adapters/ocr/OCRAdapter';
+import { isDirectAdapter } from '@/adapters/ocr/OCRAdapter';
 import { GeminiOCRAdapter } from '@/adapters/ocr/GeminiOCRAdapter';
+import { GeminiDirectAdapter } from '@/adapters/ocr/GeminiDirectAdapter';
+import { TesseractOCRAdapter } from '@/adapters/ocr/TesseractOCRAdapter';
 import { courierParserRegistry } from '@/adapters/courier';
 import { config } from '@/config';
 
@@ -15,8 +18,10 @@ class AIService {
     switch (config.ai.ocr.engine) {
       case 'gemini':
         return new GeminiOCRAdapter();
+      case 'gemini-direct':
+        return new GeminiDirectAdapter();
       case 'tesseract':
-        throw new Error('Tesseract adapter not yet implemented');
+        return new TesseractOCRAdapter();
     }
   }
 
@@ -26,6 +31,19 @@ class AIService {
     const start = Date.now();
 
     try {
+      // Single-call path: PDF → Gemini → structured JSON (no separate parser step)
+      if (isDirectAdapter(this.ocrAdapter)) {
+        const direct = await this.ocrAdapter.extractDirect(request);
+        return {
+          success: true,
+          data: direct.invoices,
+          rawText: direct.rawDescription,
+          confidence: direct.confidence,
+          processingTimeMs: Date.now() - start,
+        };
+      }
+
+      // Two-call path: PDF → OCR → raw text → courier parser
       const ocrResult = await this.ocrAdapter.process(request);
 
       const courierType =

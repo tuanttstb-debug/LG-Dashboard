@@ -13,6 +13,7 @@ _Last updated: 2026-06-21_
 | Backend | GAS Web App (Sheets + Drive as DB/storage) |
 | AI | Gemini via `@google/generative-ai` SDK, client-side |
 | Deploy | GitHub Pages (static export) via GitHub Actions |
+| HEAD | `5be2da4` (main) — ocr-service pushed, src unchanged from `6e6895e` |
 
 ## Architecture
 

@@ -1,10 +1,11 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
-import { BaseCourierParser } from './CourierParser';
-import type { CourierParseResult } from './CourierParser';
+import { BaseOCRAdapter, type DirectExtractionAdapter } from './OCRAdapter';
+import type { OCRResult, AIExtractionRequest, DirectExtractionResult } from '@/types';
 import { config } from '@/config';
 
-const EXTRACTION_PROMPT = `You are a logistics invoice extraction specialist for a Vietnamese freight forwarding company.
-Extract structured data from FedEx shipping documents. Return ONLY valid JSON — no markdown, no explanation.
+// Combined OCR + structured extraction prompt (single Gemini call)
+const DIRECT_PROMPT = `You are a logistics invoice extraction specialist for a Vietnamese freight forwarding company.
+Extract ALL structured invoice data directly from this PDF document. Return ONLY valid JSON — no markdown, no explanation.
 
 ## Document types (check in this priority order)
 
@@ -42,7 +43,7 @@ Identified by: invoice number + invoice date fields in English table format
 - Remove thousand-separator commas from numbers before returning: "645,624.00" → 645624.0
 - Convert all dates to YYYY-MM-DD regardless of input format ("17 Jun 2026" → "2026-06-17")
 - Use null for any field not found in the document — never guess
-- Ignore duplicate pages (the same page may appear twice due to OCR multi-pass)
+- Ignore duplicate pages (the same page may appear twice in the PDF)
 - confidence: 0.0–1.0 reflecting your certainty about the extracted data
 
 ## JSON schema
@@ -99,8 +100,8 @@ Identified by: invoice number + invoice date fields in English table format
   "warnings": []
 }`;
 
-export class FedExParser extends BaseCourierParser {
-  readonly courierType = 'fedex' as const;
+export class GeminiDirectAdapter extends BaseOCRAdapter implements DirectExtractionAdapter {
+  readonly name = 'gemini-direct' as const;
   private client: GoogleGenerativeAI;
 
   constructor() {
@@ -108,33 +109,67 @@ export class FedExParser extends BaseCourierParser {
     this.client = new GoogleGenerativeAI(config.ai.gemini.apiKey);
   }
 
-  canParse(rawText: string): boolean {
-    return /fedex|federal express|fdx/i.test(rawText);
+  isAvailable(): boolean {
+    return config.ai.gemini.apiKey.length > 0;
   }
 
-  async parse(rawText: string): Promise<CourierParseResult> {
+  async process(request: AIExtractionRequest): Promise<OCRResult> {
+    // Fallback: extract raw text (used only if direct path is bypassed)
+    const model = this.client.getGenerativeModel({ model: config.ai.gemini.flashModel });
+    const start = Date.now();
+    const result = await model.generateContent([
+      'Extract ALL text from this document exactly as it appears.',
+      { inlineData: { data: request.fileBase64, mimeType: request.mimeType as 'application/pdf' } },
+    ]);
+    return { rawText: result.response.text(), pageCount: 1, processingTimeMs: Date.now() - start };
+  }
+
+  async extractDirect(request: AIExtractionRequest): Promise<DirectExtractionResult> {
+    const start = Date.now();
     const model = this.client.getGenerativeModel({
       model: config.ai.gemini.flashModel,
       generationConfig: { responseMimeType: 'application/json' },
     });
 
-    const result = await model.generateContent(
-      `${EXTRACTION_PROMPT}\n\nRAW INVOICE TEXT:\n---\n${rawText}\n---`,
-    );
+    const filePart = {
+      inlineData: { data: request.fileBase64, mimeType: request.mimeType as 'application/pdf' },
+    };
 
-    const jsonText = result.response.text();
+    const maxRetries = config.ai.ocr.maxRetries;
+    let lastErr: unknown;
 
-    let parsed: CourierParseResult;
-    try {
-      parsed = JSON.parse(jsonText) as CourierParseResult;
-    } catch {
-      return {
-        invoices: [],
-        confidence: 0,
-        warnings: ['Failed to parse Gemini JSON response'],
-      };
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      if (attempt > 0) await new Promise(r => setTimeout(r, 2000 * attempt));
+      try {
+        const result = await model.generateContent([DIRECT_PROMPT, filePart]);
+        const jsonText = result.response.text();
+
+        let parsed: { invoices?: DirectExtractionResult['invoices']; confidence?: number };
+        try {
+          parsed = JSON.parse(jsonText) as typeof parsed;
+        } catch {
+          return {
+            invoices: [],
+            confidence: 0,
+            rawDescription: jsonText.slice(0, 500),
+            processingTimeMs: Date.now() - start,
+          };
+        }
+
+        return {
+          invoices: parsed.invoices ?? [],
+          confidence: parsed.confidence ?? 0,
+          rawDescription: `GeminiDirect: ${parsed.invoices?.length ?? 0} invoice(s) extracted`,
+          processingTimeMs: Date.now() - start,
+        };
+      } catch (err) {
+        lastErr = err;
+        const msg = err instanceof Error ? err.message : String(err);
+        // Retry on transient server errors (503, 429, 500)
+        if (!/503|502|429|500/.test(msg)) throw err;
+      }
     }
 
-    return parsed;
+    throw lastErr;
   }
 }

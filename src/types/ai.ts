@@ -35,3 +35,10 @@ export interface FileUploadProgress {
   status: ExtractionStatus;
   error?: string;
 }
+
+export interface DirectExtractionResult {
+  invoices: Partial<import('./invoice').Invoice>[];
+  confidence: number;
+  rawDescription: string;
+  processingTimeMs: number;
+}

@@ -1,9 +1,17 @@
-import type { OCRResult, AIExtractionRequest } from '@/types';
+import type { OCRResult, AIExtractionRequest, DirectExtractionResult } from '@/types';
 
 export interface OCRAdapter {
   readonly name: string;
   process(request: AIExtractionRequest): Promise<OCRResult>;
   isAvailable(): boolean;
+}
+
+export interface DirectExtractionAdapter extends OCRAdapter {
+  extractDirect(request: AIExtractionRequest): Promise<DirectExtractionResult>;
+}
+
+export function isDirectAdapter(adapter: OCRAdapter): adapter is DirectExtractionAdapter {
+  return typeof (adapter as DirectExtractionAdapter).extractDirect === 'function';
 }
 
 export abstract class BaseOCRAdapter implements OCRAdapter {

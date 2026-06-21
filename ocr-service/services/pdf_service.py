@@ -3,7 +3,7 @@ from PIL import Image
 import pypdfium2 as pdfium
 
 
-def pdf_bytes_to_images(data: bytes, dpi: int = 300) -> list[Image.Image]:
+def pdf_bytes_to_images(data: bytes, dpi: int = 200) -> list[Image.Image]:
     """Convert each page of a PDF to a PIL Image at the given DPI."""
     doc = pdfium.PdfDocument(data)
     images: list[Image.Image] = []

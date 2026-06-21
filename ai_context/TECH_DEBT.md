@@ -73,13 +73,14 @@ _Last updated: 2026-06-21_
 
 ## Resolved this session
 
-| ID | What | How |
-|---|---|---|
-| — | `--turbo` breaks webpack canvas alias | Removed from `package.json` dev script |
-| — | `typedRoutes` type error | Removed `experimental.typedRoutes` from next.config.mjs |
-| — | `Buffer` not assignable to `BlobPart` | `new Uint8Array(buffer)` in `triggerBrowserDownload` |
-| — | API route incompatible with static export | Moved AI extraction to client-side, deleted route |
-| — | `[id]` dynamic route blocked static build | Replaced with query-param route `/invoices/review?id=` |
-| — | GAS CORS preflight blocked POST | Changed to `Content-Type: text/plain` |
-| — | `gemini-1.5-pro`/`flash` deprecated | Updated to `gemini-2.5-flash` |
-| — | `next.config.mjs` not supported | Renamed from `.ts`, converted to ESM |
+| Session | ID | What | How |
+|---|---|---|---|
+| S4 | — | No debt resolved — context audit + git push only | — |
+| S1/S2 | — | `--turbo` breaks webpack canvas alias | Removed from `package.json` dev script |
+| S1/S2 | — | `typedRoutes` type error | Removed `experimental.typedRoutes` from next.config.mjs |
+| S1/S2 | — | `Buffer` not assignable to `BlobPart` | `new Uint8Array(buffer)` in `triggerBrowserDownload` |
+| S1/S2 | — | API route incompatible with static export | Moved AI extraction to client-side, deleted route |
+| S1/S2 | — | `[id]` dynamic route blocked static build | Replaced with query-param route `/invoices/review?id=` |
+| S1/S2 | — | GAS CORS preflight blocked POST | Changed to `Content-Type: text/plain` |
+| S1/S2 | — | `gemini-1.5-pro`/`flash` deprecated | Updated to `gemini-2.5-flash` |
+| S1/S2 | — | `next.config.mjs` not supported | Renamed from `.ts`, converted to ESM |

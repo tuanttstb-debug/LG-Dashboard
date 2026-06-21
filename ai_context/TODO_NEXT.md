@@ -4,10 +4,7 @@ _Last updated: 2026-06-21_
 
 ## P0 — Immediate (blocking everything else)
 
-### Create project context documentation — `docs/context/` (15 files)
-- **Status**: Structure designed, user confirmation received in S3
-- **Action**: Create all 26 files across `docs/context/`, `docs/adr/`, `docs/api/`, `docs/roadmap/`, `docs/decision/`
-- **Entry point**: `docs/context/15_context_index.md`
+> **Confirmed execution order (S4):** TesseractOCRAdapter → PDF Viewer → E2E verify → History page → Docs
 
 ### Wire TesseractOCRAdapter to OCR microservice
 - **File to create**: `src/adapters/ocr/TesseractOCRAdapter.ts`
@@ -15,6 +12,11 @@ _Last updated: 2026-06-21_
 - **Config**: Add `NEXT_PUBLIC_OCR_SERVICE_URL` + `NEXT_PUBLIC_OCR_SERVICE_SECRET` to `src/config/index.ts` and `.env.local`
 - **Switch**: Set `NEXT_PUBLIC_OCR_ENGINE=tesseract` to activate
 - **Note**: Frontend currently throws on `tesseract` engine — `AIService.ts:19`
+
+### Create `ai_context/ARCHITECTURE_SUMMARY.md`
+- **Status**: File does not exist — was referenced in context file list but never created (confirmed missing S4)
+- **Action**: Create standalone file covering stack layers, adapter pattern, deploy model, data flow
+- **Can do as part of the 26-doc system or as a one-off** — either is acceptable
 
 ### Verify end-to-end on GitHub Pages (carried from S2)
 - [ ] Open `https://tuanttstb-debug.github.io/LG-Dashboard/`
@@ -51,6 +53,6 @@ _Last updated: 2026-06-21_
 - Multi-user support (auth)
 - DHL / UPS parser implementation (stubs exist at `src/adapters/courier/`)
 - Batch export (all invoices in one Excel with summary sheet — `generateBatchExcel()` already built)
-- Tesseract OCR as primary (microservice built in S3 — needs frontend wiring, see P0)
+- Tesseract OCR as primary (microservice built in S3, pushed in S4 — needs frontend wiring, see P0)
 - Async OCR job queue (replace in-memory `_job_store` in `ocr-service/routers/ocr.py` with Redis or task queue)
 - Docker Compose to run main app + ocr-service together in one command

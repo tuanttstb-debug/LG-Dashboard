@@ -23,20 +23,36 @@ def _preprocess(image: Image.Image) -> Image.Image:
 
 
 def _ocr_image(image: Image.Image, lang: str, config: str) -> tuple[str, float]:
-    """Run Tesseract on one PIL image; return (text, mean_confidence)."""
+    """Run Tesseract once per image; extract both text and confidence from TSV output."""
     preprocessed = _preprocess(image)
 
-    try:
-        data = pytesseract.image_to_data(
-            preprocessed, lang=lang, config=config, output_type=Output.DICT
-        )
-        confidences = [int(c) for c in data["conf"] if str(c).lstrip("-").isdigit() and int(c) >= 0]
-        mean_conf = sum(confidences) / len(confidences) if confidences else 0.0
-    except Exception:
-        mean_conf = 0.0
+    data = pytesseract.image_to_data(
+        preprocessed, lang=lang, config=config, output_type=Output.DICT
+    )
 
-    text = pytesseract.image_to_string(preprocessed, lang=lang, config=config)
-    return text.strip(), round(mean_conf, 2)
+    # Confidence: word-level entries only (conf == -1 means non-word block)
+    confidences = [int(c) for c in data["conf"] if str(c).lstrip("-").isdigit() and int(c) >= 0]
+    mean_conf = round(sum(confidences) / len(confidences), 2) if confidences else 0.0
+
+    # Reconstruct text preserving line breaks from the TSV word stream
+    prev_line_key: tuple | None = None
+    parts: list[str] = []
+    for i in range(len(data["level"])):
+        if data["level"][i] != 5:  # 5 = word level in Tesseract TSV
+            continue
+        word = data["text"][i].strip()
+        if not word:
+            continue
+        line_key = (data["page_num"][i], data["block_num"][i], data["par_num"][i], data["line_num"][i])
+        if prev_line_key is not None and line_key != prev_line_key:
+            parts.append("\n")
+        elif parts:
+            parts.append(" ")
+        parts.append(word)
+        prev_line_key = line_key
+
+    text = "".join(parts)
+    return text, mean_conf
 
 
 def extract_text(

@@ -1,3 +1,4 @@
 export { GeminiOCRAdapter } from './GeminiOCRAdapter';
-export type { OCRAdapter } from './OCRAdapter';
-export { BaseOCRAdapter } from './OCRAdapter';
+export { GeminiDirectAdapter } from './GeminiDirectAdapter';
+export type { OCRAdapter, DirectExtractionAdapter } from './OCRAdapter';
+export { BaseOCRAdapter, isDirectAdapter } from './OCRAdapter';
