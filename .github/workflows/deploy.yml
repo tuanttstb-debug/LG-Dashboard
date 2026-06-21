@@ -34,7 +34,7 @@ jobs:
           NEXT_PUBLIC_GEMINI_API_KEY: ${{ secrets.NEXT_PUBLIC_GEMINI_API_KEY }}
           NEXT_PUBLIC_GEMINI_MODEL: gemini-2.5-flash
           NEXT_PUBLIC_GEMINI_FLASH_MODEL: gemini-2.5-flash
-          NEXT_PUBLIC_OCR_ENGINE: gemini
+          NEXT_PUBLIC_OCR_ENGINE: gemini-direct
           NEXT_PUBLIC_OCR_MAX_RETRIES: "3"
           NEXT_PUBLIC_OCR_TIMEOUT_MS: "60000"
           NEXT_PUBLIC_GAS_WEB_APP_URL: ${{ secrets.NEXT_PUBLIC_GAS_WEB_APP_URL }}

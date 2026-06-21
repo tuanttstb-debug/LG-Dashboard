@@ -1,3 +1,5 @@
+import type { Invoice } from './invoice';
+
 export type ExtractionStatus = 'idle' | 'uploading' | 'processing' | 'success' | 'error';
 
 export interface ExtractionError {
@@ -37,7 +39,7 @@ export interface FileUploadProgress {
 }
 
 export interface DirectExtractionResult {
-  invoices: Partial<import('./invoice').Invoice>[];
+  invoices: Partial<Invoice>[];
   confidence: number;
   rawDescription: string;
   processingTimeMs: number;
