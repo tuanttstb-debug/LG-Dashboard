@@ -1,0 +1,10 @@
+fastapi==0.115.5
+uvicorn[standard]==0.32.1
+pytesseract==0.3.13
+pypdfium2==4.30.0
+Pillow==11.0.0
+python-multipart==0.0.17
+python-dotenv==1.0.1
+aiofiles==24.1.0
+pydantic==2.10.3
+pydantic-settings==2.6.1

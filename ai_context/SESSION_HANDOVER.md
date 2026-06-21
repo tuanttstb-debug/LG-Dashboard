@@ -1,5 +1,103 @@
 # Session Handover — LG Dashboard
 
+## Session: 2026-06-21 (S3)
+
+### What was built this session
+
+Architecture audit → Tesseract installation → OCR microservice from scratch → Project context documentation system designed (pending confirmation to create files).
+
+---
+
+### Tasks completed
+
+| Task | Result |
+|---|---|
+| Phase 1 Architecture Audit | Full report delivered — stack, layers, adapters, deploy model, dependency tree |
+| Tesseract 5.4.0 installed | `winget install UB-Mannheim.TesseractOCR` → `C:\Program Files\Tesseract-OCR\` |
+| Vietnamese tessdata downloaded | `tessdata_best/vie.traineddata` (12.4 MB) → `ocr-service/tessdata/vie.traineddata` |
+| Python 3.12.10 installed | `py install 3.12` — required because Python 3.14 has no prebuilt wheels for Pillow/pydantic-core |
+| OCR microservice built | `ocr-service/` — FastAPI + pytesseract + pypdfium2, Python 3.12 venv |
+| All 3 endpoints verified live | `/health`, `POST /ocr/extract`, `POST /ocr/upload`, `GET /ocr/status/{job_id}` |
+| 401 auth gate confirmed | Missing `x-api-secret` → `401 Invalid API secret` |
+| Project context docs designed | 26 files proposed across `docs/context/`, `docs/adr/`, `docs/api/` — **awaiting user confirmation to create** |
+
+---
+
+### Files created this session
+
+```
+ocr-service/
+├── main.py                        FastAPI app, CORS, /health, startup logger
+├── config.py                      pydantic-settings — reads .env
+├── requirements.txt               Pinned, Python 3.12 compatible
+├── .env                           Active config (gitignored)
+├── .env.example                   Template with all required vars
+├── .gitignore
+├── Dockerfile                     Linux target (apt tesseract-ocr-vie)
+├── models/__init__.py
+├── models/schemas.py              OCRResult, OCRUploadResponse, JobStatusResponse, HealthResponse
+├── routers/__init__.py
+├── routers/ocr.py                 POST /ocr/extract, POST /ocr/upload, GET /ocr/status/{job_id}
+├── services/__init__.py
+├── services/ocr_service.py        Tesseract wrapper, greyscale+sharpen preprocessing, per-page confidence
+├── services/pdf_service.py        PDF → PIL via pypdfium2; raster → PIL
+└── tessdata/
+    ├── eng.traineddata            Copied from Tesseract install
+    └── vie.traineddata            Downloaded tessdata_best (12.4 MB)
+```
+
+**No source code in `src/` was modified.**
+
+---
+
+### Decisions made
+
+| Decision | Rationale |
+|---|---|
+| Native Tesseract binary (not tesseract.js WASM) | User explicitly requested microservice, not browser-based OCR |
+| Python 3.12 venv, not Python 3.14 | Pillow 11 + pydantic-core 2.27 have no prebuilt wheels for 3.14 on Windows |
+| Local `ocr-service/tessdata/` dir | No admin rights to write to `C:\Program Files\Tesseract-OCR\tessdata\`; `TESSDATA_PREFIX` env var used to redirect |
+| `vie+eng` as default lang | Testing showed `vie+eng` at 88% confidence vs `eng`-only at 72.5% on same image |
+| `pypdfium2` for PDF→image | Pure Python, no poppler binary required on Windows |
+| In-memory `_job_store` for now | V1 — acceptable for single-user; async queue deferred to future |
+| Dockerfile targets Linux | Production deploy on Linux container; dev uses local Windows Tesseract |
+| docs/context/ system designed but not yet created | User requested audit + proposal first, then confirmation before file creation |
+
+---
+
+### Blockers
+
+1. **Project context docs not created** — Proposal was accepted structurally but user has not yet confirmed to proceed with file creation. 26 files are ready to be written on next `confirm` signal.
+
+2. **Frontend `TesseractOCRAdapter.ts` still throws** — `AIService.createAdapter()` case `'tesseract'` throws `'Tesseract adapter not yet implemented'`. OCR microservice exists but frontend is not yet connected to it. Phase 5 (API contract) and Phase 6 (integration) not started.
+
+3. **End-to-end on GitHub Pages still unverified** — Carried over from S2. No FedEx PDF was available for live test during this session.
+
+---
+
+### Regression risks
+
+| Risk | Severity | Notes |
+|---|---|---|
+| `ocr-service` runs on port 8000 — conflicts if already in use | MEDIUM | No port conflict check in startup. Use `--port` arg if needed |
+| `_job_store` dict resets on uvicorn restart | LOW | Only affects `GET /ocr/status/{job_id}` across restarts — returns 404 for old jobs |
+| `vie+eng` tessdata in git (12.4 MB binary) | LOW | Will slow `git clone`. Consider `.gitattributes` LFS if repo grows |
+| Tesseract binary path hardcoded to Windows in `.env.example` | MEDIUM | Anyone cloning on Linux/Mac needs to override `TESSERACT_CMD` |
+| Frontend unchanged — still uses Gemini as default OCR | INFO | `config.ai.ocr.engine = 'gemini'` by default. Tesseract path not yet wired |
+
+---
+
+### State at session end
+
+- `ocr-service/` service: running at `http://localhost:8000`, verified
+- Tesseract: `v5.4.0.20240606`, languages: `eng`, `vie`
+- Python venv: `ocr-service/venv/` (Python 3.12.10, not committed)
+- Main frontend: unchanged — `main` branch, HEAD `6e6895e`
+- Context docs: proposal ready, **creation not yet started**
+- To start OCR service: `cd ocr-service && .\venv\Scripts\uvicorn.exe main:app --reload --port 8000`
+
+---
+
 ## Session: 2026-06-20 (S1 + S2 combined)
 
 ### What was built this session

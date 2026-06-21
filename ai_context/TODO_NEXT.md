@@ -1,12 +1,24 @@
 # TODO Next — LG Dashboard
 
-_Last updated: 2026-06-20_
+_Last updated: 2026-06-21_
 
-## P0 — Verify end-to-end (blocking everything else)
+## P0 — Immediate (blocking everything else)
 
-- [ ] Wait for GitHub Actions deploy of commit `6e6895e` to complete
+### Create project context documentation — `docs/context/` (15 files)
+- **Status**: Structure designed, user confirmation received in S3
+- **Action**: Create all 26 files across `docs/context/`, `docs/adr/`, `docs/api/`, `docs/roadmap/`, `docs/decision/`
+- **Entry point**: `docs/context/15_context_index.md`
+
+### Wire TesseractOCRAdapter to OCR microservice
+- **File to create**: `src/adapters/ocr/TesseractOCRAdapter.ts`
+- **What**: Implement `BaseOCRAdapter` — POST to `http://localhost:8000/ocr/extract`, return `OCRResult`
+- **Config**: Add `NEXT_PUBLIC_OCR_SERVICE_URL` + `NEXT_PUBLIC_OCR_SERVICE_SECRET` to `src/config/index.ts` and `.env.local`
+- **Switch**: Set `NEXT_PUBLIC_OCR_ENGINE=tesseract` to activate
+- **Note**: Frontend currently throws on `tesseract` engine — `AIService.ts:19`
+
+### Verify end-to-end on GitHub Pages (carried from S2)
 - [ ] Open `https://tuanttstb-debug.github.io/LG-Dashboard/`
-- [ ] Upload a FedEx PDF → confirm AI extraction returns data (no 403/404)
+- [ ] Upload a FedEx PDF → confirm Gemini extraction returns data (no 403/404)
 - [ ] Review extracted invoice → Save → confirm row appears in Google Sheets
 - [ ] Export Excel → confirm download + Drive upload
 - [ ] Navigate via sidebar links → confirm no broken routes
@@ -39,4 +51,6 @@ _Last updated: 2026-06-20_
 - Multi-user support (auth)
 - DHL / UPS parser implementation (stubs exist at `src/adapters/courier/`)
 - Batch export (all invoices in one Excel with summary sheet — `generateBatchExcel()` already built)
-- Tesseract OCR fallback (`src/adapters/ocr/` stub exists)
+- Tesseract OCR as primary (microservice built in S3 — needs frontend wiring, see P0)
+- Async OCR job queue (replace in-memory `_job_store` in `ocr-service/routers/ocr.py` with Redis or task queue)
+- Docker Compose to run main app + ocr-service together in one command

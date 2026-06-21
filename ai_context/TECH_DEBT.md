@@ -1,6 +1,6 @@
 # Tech Debt — LG Dashboard
 
-_Last updated: 2026-06-20_
+_Last updated: 2026-06-21_
 
 ## Active debt
 
@@ -41,6 +41,35 @@ _Last updated: 2026-06-20_
 ### TD-008 · Dashboard KPI counts only first page
 - **What**: Dashboard fetches `useInvoiceList(1, 5)` for KPIs. `total` is correct (from GAS), but `pending`/`exported` counts are calculated from the 5-item page only, not all invoices.
 - **Fix**: Either add a dedicated GAS `getStats` action, or change to `useInvoiceList(1, 100)` for KPI calculation with a separate display query.
+
+### TD-009 · OCR `_job_store` is in-memory
+- **What**: `routers/ocr.py` stores job results in a module-level Python dict. Resets on every uvicorn restart.
+- **Risk**: `GET /ocr/status/{job_id}` returns 404 for any job created before current server process started.
+- **Impact**: Low — V1 single-user, `/ocr/extract` is synchronous so status endpoint is rarely needed.
+- **Fix**: Replace with Redis, SQLite, or a simple file-based store when async processing is added.
+- **File**: `ocr-service/routers/ocr.py:18`
+
+### TD-010 · `ocr-service/venv/` not committed
+- **What**: Python virtual environment is in `.gitignore`. Fresh clone requires `py -3.12 -m venv venv && pip install -r requirements.txt`.
+- **Risk**: Onboarding friction. No setup script exists.
+- **Fix**: Add `ocr-service/README.md` with setup instructions, or add `Makefile` / `setup.ps1` for one-command bootstrap.
+
+### TD-011 · Tesseract path hardcoded for Windows in `.env.example`
+- **What**: `TESSERACT_CMD=C:\Program Files\Tesseract-OCR\tesseract.exe` is Windows-only. Linux/Mac paths differ (`/usr/bin/tesseract`).
+- **Risk**: Any non-Windows developer or CI runner will need manual override.
+- **Fix**: Add platform detection in `config.py` as fallback, or document per-OS override in README.
+
+### TD-012 · Frontend `TesseractOCRAdapter.ts` still throws
+- **What**: `AIService.createAdapter()` at `src/services/ai/AIService.ts:19` throws `Error('Tesseract adapter not yet implemented')` when `NEXT_PUBLIC_OCR_ENGINE=tesseract`.
+- **Risk**: Setting the env var will break the entire upload pipeline immediately.
+- **Fix**: Implement `TesseractOCRAdapter.ts` to POST to `ocr-service` — see TODO P0.
+- **File**: `src/services/ai/AIService.ts:19`, `src/adapters/ocr/index.ts`
+
+### TD-013 · `docs/architecture/overview.md` and `docs/flows/invoice-processing.md` are outdated
+- **What**: Both files still reference the deleted `/api/ai/extract` route and the old server-side AI extraction pattern from before the static export refactor (S2).
+- **Risk**: Misleads any developer reading docs — they describe an architecture that no longer exists.
+- **Fix**: Will be superseded by `docs/context/03_architecture.md` and `docs/context/02_business_flow.md` once context doc creation is confirmed.
+- **File**: `docs/architecture/overview.md`, `docs/flows/invoice-processing.md`
 
 ## Resolved this session
 

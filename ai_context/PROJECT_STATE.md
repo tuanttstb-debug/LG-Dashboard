@@ -1,6 +1,6 @@
 # Project State — LG Dashboard
 
-_Last updated: 2026-06-20_
+_Last updated: 2026-06-21_
 
 ## Identity
 
@@ -18,8 +18,10 @@ _Last updated: 2026-06-20_
 
 ```
 Browser (GitHub Pages static SPA)
-  ↓ AI extraction
+  ↓ AI extraction (default path)
 Gemini API  ← direct browser call, key in NEXT_PUBLIC_GEMINI_API_KEY
+  ↓ AI extraction (alternate path — NOT YET WIRED in frontend)
+OCR Microservice (localhost:8000)  ← FastAPI + Tesseract 5.4.0, vie+eng
   ↓ save/load invoices
 GAS Web App ← Content-Type: text/plain POST (avoids CORS preflight)
   ↓
@@ -28,11 +30,12 @@ Google Drive (PDF / Excel folders)
 ```
 
 Key architectural choices:
-- No server — everything is client-side SPA
+- No server on main SPA — everything is client-side (GitHub Pages static export)
 - No traditional DB — Google Sheets as storage
-- OCR Adapter pattern: `GeminiOCRAdapter` (default), `TesseractOCRAdapter` (stub)
+- OCR Adapter pattern: `GeminiOCRAdapter` (default active), `TesseractOCRAdapter` (stub — microservice exists but frontend adapter not yet written)
 - Courier Strategy pattern: `FedExParser` (live), `DHLParser`/`UPSParser` (stubs)
 - Dynamic route replaced by query param route for static export compat
+- **NEW S3**: Tesseract OCR microservice deployed locally at `ocr-service/` — separate Python FastAPI process, not integrated into frontend yet
 
 ## Feature status
 
@@ -49,12 +52,15 @@ Key architectural choices:
 | PDF Viewer in review | ❌ Shows skeleton only — File not passed cross-page |
 | History page | ❌ Placeholder only |
 | Auth / multi-user | ❌ Out of scope V1 |
+| OCR microservice (Tesseract) | ✅ Built + verified locally — NOT yet wired to frontend |
+| `TesseractOCRAdapter.ts` in frontend | ❌ Stub only — throws "not implemented" |
+| Project context docs (`docs/context/`) | ⏳ Structure designed, 26 files pending creation |
 
 ## Key files
 
 ```
 src/config/index.ts              All env → config object (NEXT_PUBLIC_ prefix required)
-src/adapters/ocr/               GeminiOCRAdapter (base64 input, no Buffer)
+src/adapters/ocr/               GeminiOCRAdapter (active), TesseractOCRAdapter (stub, throws)
 src/adapters/courier/           FedExParser uses gemini-2.5-flash + JSON mode
 src/services/ai/AIService.ts    orchestrates OCR → courier detect → parse
 src/services/google/GASClient.ts text/plain POST with retry, secret auth
@@ -63,6 +69,13 @@ src/features/invoice/hooks/useFileUpload.ts  FileReader → base64 → aiService
 src/features/invoice/hooks/useInvoices.ts    TanStack Query hooks for GAS
 src/app/(dashboard)/invoices/review/ReviewClient.tsx  reads ?id= from searchParams
 gas/src/Code.js                 GAS router: saveInvoice, getInvoices, uploadFile…
+
+ocr-service/main.py             FastAPI entrypoint, CORS, /health
+ocr-service/config.py           Settings (pydantic-settings, reads .env)
+ocr-service/routers/ocr.py      POST /ocr/extract, POST /ocr/upload, GET /ocr/status/{job_id}
+ocr-service/services/ocr_service.py  Tesseract wrapper, preprocess, confidence aggregation
+ocr-service/services/pdf_service.py  PDF → PIL images via pypdfium2
+ocr-service/tessdata/           eng.traineddata + vie.traineddata (tessdata_best)
 ```
 
 ## Env vars (all NEXT_PUBLIC_)
