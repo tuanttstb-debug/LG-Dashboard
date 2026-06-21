@@ -1,6 +1,6 @@
 # Project State — LG Dashboard
 
-_Last updated: 2026-06-21_
+_Last updated: 2026-06-21 (S5)_
 
 ## Identity
 
@@ -13,17 +13,19 @@ _Last updated: 2026-06-21_
 | Backend | GAS Web App (Sheets + Drive as DB/storage) |
 | AI | Gemini via `@google/generative-ai` SDK, client-side |
 | Deploy | GitHub Pages (static export) via GitHub Actions |
-| HEAD | `5be2da4` (main) — ocr-service pushed, src unchanged from `6e6895e` |
+| HEAD | `29a138e` (main) — GeminiDirect engine, layout fix, GAS persistence, review page fix |
 
 ## Architecture
 
 ```
 Browser (GitHub Pages static SPA)
-  ↓ AI extraction (default path)
-Gemini API  ← direct browser call, key in NEXT_PUBLIC_GEMINI_API_KEY
-  ↓ AI extraction (alternate path — NOT YET WIRED in frontend)
+  ↓ AI extraction (active path — NEXT_PUBLIC_OCR_ENGINE=gemini-direct)
+GeminiDirectAdapter  ← PDF as base64 inline + combined OCR+extraction prompt → structured JSON
+  ↓ AI extraction (two-call path — engine=gemini)
+GeminiOCRAdapter → raw text → FedExParser → structured JSON
+  ↓ AI extraction (alternate path — engine=tesseract, NOT YET WIRED)
 OCR Microservice (localhost:8000)  ← FastAPI + Tesseract 5.4.0, vie+eng
-  ↓ save/load invoices
+  ↓ save/load invoices (GAS persistence added S5)
 GAS Web App ← Content-Type: text/plain POST (avoids CORS preflight)
   ↓
 Google Sheets (INVOICES / VERSIONS / METADATA)
@@ -33,20 +35,21 @@ Google Drive (PDF / Excel folders)
 Key architectural choices:
 - No server on main SPA — everything is client-side (GitHub Pages static export)
 - No traditional DB — Google Sheets as storage
-- OCR Adapter pattern: `GeminiOCRAdapter` (default active), `TesseractOCRAdapter` (stub — microservice exists but frontend adapter not yet written)
-- Courier Strategy pattern: `FedExParser` (live), `DHLParser`/`UPSParser` (stubs)
+- OCR Adapter pattern: `GeminiDirectAdapter` (active — 1 Gemini call, ~35-45s), `GeminiOCRAdapter` (2-call fallback), `TesseractOCRAdapter` (stub — microservice exists but adapter not yet implemented)
+- `DirectExtractionAdapter` interface: type guard `isDirectAdapter()` short-circuits `AIService` to skip OCR+parse two-step
+- Courier Strategy pattern: `FedExParser` (live), `DHLParser`/`UPSParser` (stubs); **bypassed entirely** in gemini-direct path
 - Dynamic route replaced by query param route for static export compat
-- **NEW S3**: Tesseract OCR microservice deployed locally at `ocr-service/` — separate Python FastAPI process, not integrated into frontend yet
+- GAS persistence: invoices auto-saved on upload via `Promise.allSettled` in `useFileUpload.ts`
 
 ## Feature status
 
 | Feature | Status |
 |---|---|
 | Upload PDF (drag & drop, queue, validation) | ✅ Built |
-| AI extraction (OCR + courier parsing) | ✅ Built, model confirmed: `gemini-2.5-flash` |
+| AI extraction (OCR + courier parsing) | ✅ Built — `gemini-direct` engine active (1-call PDF→JSON) |
 | Invoice List (tabs, search, pagination) | ✅ Built |
 | Review + Edit form (all sections) | ✅ Built |
-| Save to GAS/Sheets | ✅ Built (untested end-to-end on production) |
+| Save to GAS/Sheets on upload | ✅ Built (S5 — `Promise.allSettled` in `useFileUpload`) |
 | Export Excel (client-side ExcelJS) | ✅ Built |
 | Upload to Google Drive | ✅ Built |
 | Dashboard KPI | ✅ Built |
@@ -54,21 +57,31 @@ Key architectural choices:
 | History page | ❌ Placeholder only |
 | Auth / multi-user | ❌ Out of scope V1 |
 | OCR microservice (Tesseract) | ✅ Built + verified locally — NOT yet wired to frontend |
-| `TesseractOCRAdapter.ts` in frontend | ❌ Stub only — throws "not implemented" |
+| `TesseractOCRAdapter.ts` in frontend | ❌ Stub only — throws "not implemented" (low priority — gemini-direct is active) |
+| `GeminiDirectAdapter.ts` | ✅ Built S5 — PDF inline + combined prompt, retry on 5xx/429 |
+| Layout (sidebar overlap) | ✅ Fixed S5 — sidebar flex sibling, removed `fixed` + `pl-sidebar` |
+| Review page blank after OCR | ✅ Fixed S5 — GAS save + `savedIds` nav + `!isError` render guard |
 | Project context docs (`docs/context/`) | ⏳ Structure designed, 26 files pending creation |
 
 ## Key files
 
 ```
 src/config/index.ts              All env → config object (NEXT_PUBLIC_ prefix required)
-src/adapters/ocr/               GeminiOCRAdapter (active), TesseractOCRAdapter (stub, throws)
-src/adapters/courier/           FedExParser uses gemini-2.5-flash + JSON mode
-src/services/ai/AIService.ts    orchestrates OCR → courier detect → parse
+src/adapters/ocr/OCRAdapter.ts   BaseOCRAdapter, DirectExtractionAdapter interface, isDirectAdapter()
+src/adapters/ocr/GeminiDirectAdapter.ts  NEW S5 — combined OCR+extraction in 1 Gemini call
+src/adapters/ocr/GeminiOCRAdapter.ts    Two-call path (OCR text → parse)
+src/adapters/ocr/TesseractOCRAdapter.ts Stub only — throws if activated
+src/adapters/courier/           FedExParser uses gemini-2.5-flash + JSON mode (bypassed in gemini-direct)
+src/services/ai/AIService.ts    isDirectAdapter() short-circuit → gemini-direct path
 src/services/google/GASClient.ts text/plain POST with retry, secret auth
 src/services/excel/ExcelService.ts client-side Excel gen + Drive upload
-src/features/invoice/hooks/useFileUpload.ts  FileReader → base64 → aiService
+src/features/invoice/hooks/useFileUpload.ts  FileReader → base64 → aiService → buildFullInvoice → GAS save
+src/features/invoice/types/upload.ts    UploadFile.savedIds: string[] (NEW S5)
 src/features/invoice/hooks/useInvoices.ts    TanStack Query hooks for GAS
-src/app/(dashboard)/invoices/review/ReviewClient.tsx  reads ?id= from searchParams
+src/app/(dashboard)/invoices/upload/page.tsx handleReviewAll → ROUTES.review(firstSavedId)
+src/app/(dashboard)/invoices/review/ReviewClient.tsx  !isLoading && !isError render guard
+src/components/layout/Sidebar.tsx  flex shrink-0 (NOT fixed) — S5 layout fix
+src/app/(dashboard)/layout.tsx     flex flex-1 overflow-hidden (no pl-sidebar) — S5 layout fix
 gas/src/Code.js                 GAS router: saveInvoice, getInvoices, uploadFile…
 
 ocr-service/main.py             FastAPI entrypoint, CORS, /health

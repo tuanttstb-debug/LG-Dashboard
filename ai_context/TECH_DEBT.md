@@ -60,10 +60,10 @@ _Last updated: 2026-06-21_
 - **Fix**: Add platform detection in `config.py` as fallback, or document per-OS override in README.
 
 ### TD-012 · Frontend `TesseractOCRAdapter.ts` still throws
-- **What**: `AIService.createAdapter()` at `src/services/ai/AIService.ts:19` throws `Error('Tesseract adapter not yet implemented')` when `NEXT_PUBLIC_OCR_ENGINE=tesseract`.
-- **Risk**: Setting the env var will break the entire upload pipeline immediately.
-- **Fix**: Implement `TesseractOCRAdapter.ts` to POST to `ocr-service` — see TODO P0.
-- **File**: `src/services/ai/AIService.ts:19`, `src/adapters/ocr/index.ts`
+- **What**: `AIService.createAdapter()` throws `Error('Tesseract adapter not yet implemented')` when `NEXT_PUBLIC_OCR_ENGINE=tesseract`.
+- **Risk**: Lower than before — active engine is now `gemini-direct`. Setting `tesseract` still breaks upload pipeline.
+- **Fix**: Implement `TesseractOCRAdapter.ts` to POST to `ocr-service` — see TODO P3 (deprioritized S5).
+- **File**: `src/services/ai/AIService.ts`, `src/adapters/ocr/index.ts`
 
 ### TD-013 · `docs/architecture/overview.md` and `docs/flows/invoice-processing.md` are outdated
 - **What**: Both files still reference the deleted `/api/ai/extract` route and the old server-side AI extraction pattern from before the static export refactor (S2).
@@ -71,10 +71,32 @@ _Last updated: 2026-06-21_
 - **Fix**: Will be superseded by `docs/context/03_architecture.md` and `docs/context/02_business_flow.md` once context doc creation is confirmed.
 - **File**: `docs/architecture/overview.md`, `docs/flows/invoice-processing.md`
 
+### TD-014 · GAS `saveInvoice` has no fetch timeout (S5)
+- **What**: `useFileUpload.ts:140` calls `sheetsService.saveInvoice(inv)` with no timeout. `GASClient.ts` uses `fetch` without `AbortController`.
+- **Risk**: If GAS Web App is slow or returns error after long delay, `processFile` hangs. `isProcessing` stays `true`, "Review Results" button never appears, user sees infinite spinner.
+- **Fix**: Add `AbortController` with 15s timeout to `GASClient.request()`.
+- **File**: `src/services/google/GASClient.ts`
+
+### TD-015 · Initial upload does not create invoice version snapshot (S5)
+- **What**: `useFileUpload.ts` calls `sheetsService.saveInvoice()` but NOT `sheetsService.saveVersion()`. The first version record is only created when user saves from Review page via `useSaveInvoice` (which calls `saveVersion`).
+- **Risk**: Invoice history is empty immediately after upload — first audit snapshot is lost. If user navigates away without saving in Review, there is no record of the original extracted data.
+- **Fix**: After successful `saveInvoice`, call `sheetsService.saveVersion(inv)` to record the initial extraction state.
+- **File**: `src/features/invoice/hooks/useFileUpload.ts:140`
+
+### TD-016 · `gemini-direct` bypasses courier detection (S5)
+- **What**: `GeminiDirectAdapter` uses a hardcoded FedEx-specific prompt (`DIRECT_PROMPT`). `AIService.extractFromPDF()` short-circuits via `isDirectAdapter()` — `detectCourier()` is never called.
+- **Risk**: Non-FedEx PDFs (DHL, UPS) are silently processed with FedEx field mapping. Result may be partial or incorrect data with no error.
+- **Fix**: Either (a) make `DIRECT_PROMPT` courier-agnostic, or (b) pass `courierHint` to `GeminiDirectAdapter.extractDirect()` and select prompt branch accordingly.
+- **File**: `src/adapters/ocr/GeminiDirectAdapter.ts`, `src/services/ai/AIService.ts`
+
 ## Resolved this session
 
 | Session | ID | What | How |
 |---|---|---|---|
+| S5 | — | Sidebar overlap (layout broken) | Removed `fixed` from Sidebar; removed `pl-sidebar` (was undefined Tailwind class) |
+| S5 | — | Blank review page after OCR | 3-part fix: GAS save in useFileUpload + savedIds nav + `!isError` render guard |
+| S5 | — | TypeScript TS2322 `string \| undefined` | Changed `now.split('T')[0]` → `now.slice(0, 10)` (noUncheckedIndexedAccess safe) |
+| S5 | — | TypeScript inline dynamic import type | Replaced `import('./invoice').Invoice` with top-level `import type { Invoice }` |
 | S4 | — | No debt resolved — context audit + git push only | — |
 | S1/S2 | — | `--turbo` breaks webpack canvas alias | Removed from `package.json` dev script |
 | S1/S2 | — | `typedRoutes` type error | Removed `experimental.typedRoutes` from next.config.mjs |

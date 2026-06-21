@@ -1,17 +1,21 @@
 # TODO Next — LG Dashboard
 
-_Last updated: 2026-06-21_
+_Last updated: 2026-06-21 (S5)_
 
 ## P0 — Immediate (blocking everything else)
 
-> **Confirmed execution order (S4):** TesseractOCRAdapter → PDF Viewer → E2E verify → History page → Docs
+> **Confirmed execution order (S5):** GAS timeout guard → saveVersion on upload → PDF Viewer → E2E verify → History page → Docs
 
-### Wire TesseractOCRAdapter to OCR microservice
-- **File to create**: `src/adapters/ocr/TesseractOCRAdapter.ts`
-- **What**: Implement `BaseOCRAdapter` — POST to `http://localhost:8000/ocr/extract`, return `OCRResult`
-- **Config**: Add `NEXT_PUBLIC_OCR_SERVICE_URL` + `NEXT_PUBLIC_OCR_SERVICE_SECRET` to `src/config/index.ts` and `.env.local`
-- **Switch**: Set `NEXT_PUBLIC_OCR_ENGINE=tesseract` to activate
-- **Note**: Frontend currently throws on `tesseract` engine — `AIService.ts:19`
+### Add fetch timeout to GAS saveInvoice
+- **Problem**: `sheetsService.saveInvoice()` in `useFileUpload.ts` has no timeout. If GAS is unreachable, `processFile` hangs indefinitely — `isProcessing` never resets, "Review Results" button never appears.
+- **Fix**: Add `AbortController` with ~15s timeout in `GASClient.ts` request method, or wrap in `Promise.race` with timeout in `useFileUpload`.
+- **File**: `src/services/google/GASClient.ts`
+- **Risk**: High — confirmed production blocker if GAS deployment is slow or down
+
+### saveVersion on initial upload
+- **Problem**: `buildFullInvoice()` in `useFileUpload.ts` calls `sheetsService.saveInvoice()` directly, bypassing `useSaveInvoice` mutation which also calls `saveVersion`. Invoice version history starts empty — first snapshot only created on first edit+save from Review page.
+- **Fix**: After `sheetsService.saveInvoice(inv)` succeeds, call `sheetsService.saveVersion(inv)` to record the initial extracted snapshot.
+- **File**: `src/features/invoice/hooks/useFileUpload.ts:140`
 
 ### Create `ai_context/ARCHITECTURE_SUMMARY.md`
 - **Status**: File does not exist — was referenced in context file list but never created (confirmed missing S4)
@@ -53,6 +57,7 @@ _Last updated: 2026-06-21_
 - Multi-user support (auth)
 - DHL / UPS parser implementation (stubs exist at `src/adapters/courier/`)
 - Batch export (all invoices in one Excel with summary sheet — `generateBatchExcel()` already built)
-- Tesseract OCR as primary (microservice built in S3, pushed in S4 — needs frontend wiring, see P0)
+- Wire `TesseractOCRAdapter` to OCR microservice (microservice built S3, pushed S4; adapter stub throws — low priority since `gemini-direct` is active and faster)
+- Add DHL/UPS detection to `gemini-direct` path (currently all PDFs processed with FedEx-specific prompt regardless of `detectCourier()`)
 - Async OCR job queue (replace in-memory `_job_store` in `ocr-service/routers/ocr.py` with Redis or task queue)
 - Docker Compose to run main app + ocr-service together in one command

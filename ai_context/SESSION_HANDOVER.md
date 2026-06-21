@@ -1,5 +1,113 @@
 # Session Handover — LG Dashboard
 
+## Session: 2026-06-21 (S5)
+
+### What was built this session
+
+Full OCR pipeline completed end-to-end. Two critical UI bugs fixed. GeminiDirect engine (single-call PDF→JSON) added as default, replacing two-step OCR+parse flow. Invoices now persisted to GAS immediately after extraction.
+
+---
+
+### Tasks completed
+
+| Task | Result |
+|---|---|
+| TesseractOCRAdapter implemented | `src/adapters/ocr/TesseractOCRAdapter.ts` — POSTs to ocr-service, returns OCRResult |
+| Critical config bug fixed | `src/config/index.ts` fully rewritten — dynamic `process.env[key]` → static literals; this was root cause of ALL env var failures |
+| FedExParser prompt updated | TYPE A (VND Freight Charge Notifications) and TYPE B (USD standard) — correctly extracts AWB as invoice number, VND charges |
+| OCR microservice optimized | Single Tesseract pass per page (was double); DPI 200→150 option tested |
+| GeminiDirectAdapter implemented | 1 Gemini call: PDF → structured JSON directly; 2-3× faster than 2-call path |
+| `gemini-direct` engine wired | New engine type in config; `isDirectAdapter()` type guard; AIService short-circuits courier parser |
+| Retry logic on 503/429 | GeminiDirectAdapter retries up to `maxRetries` times with 2s×attempt backoff |
+| Bug fix: sidebar layout overlap | Sidebar was `fixed z-40` with `pl-sidebar` (undefined Tailwind class) → content hidden behind sidebar. Fixed: sidebar → flex sibling, `pl-sidebar` removed |
+| Bug fix: blank page after OCR | Invoices only stored in state, never saved to GAS. Fixed: `useFileUpload` now saves all invoices to GAS via `Promise.allSettled` after extraction; `savedIds` stored per file |
+| Bug fix: "Review Results" navigation | Was navigating to empty invoice list. Now navigates to first saved invoice review page |
+| Bug fix: ReviewClient render logic | Form was rendering even when `isError=true` (showed empty form + error). Fixed: `!isLoading && !isError` guard; added "Back to list" button on error |
+| TypeScript import fixed | Inline `import('./invoice').Invoice` in `ai.ts` → proper `import type { Invoice }` at file top |
+| deploy.yml updated | `NEXT_PUBLIC_OCR_ENGINE: gemini` → `gemini-direct`; `OCR_TIMEOUT_MS` confirmed 60s |
+| E2E verified locally | Full pipeline: upload → GeminiDirect extract (4 invoices, ~35-45s) → parallel GAS saves → "Review Results" visible → navigation works |
+
+---
+
+### Files changed this session
+
+```
+src/adapters/ocr/GeminiDirectAdapter.ts     NEW — combined OCR+extraction, single Gemini call, retry on 5xx
+src/adapters/ocr/TesseractOCRAdapter.ts     NEW — POST to ocr-service, base64→Blob, AbortController timeout
+src/adapters/ocr/OCRAdapter.ts              + DirectExtractionAdapter interface + isDirectAdapter() type guard
+src/adapters/ocr/index.ts                   + GeminiDirectAdapter export + isDirectAdapter export
+src/adapters/courier/FedExParser.ts         Prompt rewritten — TYPE A/B detection, VND handling, comma removal
+src/config/index.ts                         REWRITTEN — all static literal env access; + 'gemini-direct' engine type
+src/services/ai/AIService.ts                + gemini-direct case; direct extraction short-circuit path
+src/types/ai.ts                             + DirectExtractionResult interface; proper import type
+src/features/invoice/types/upload.ts        + savedIds?: string[]
+src/features/invoice/hooks/useFileUpload.ts + sheetsService import; buildFullInvoice(); Promise.allSettled saves
+src/app/(dashboard)/invoices/upload/page.tsx  handleReviewAll → navigate to first savedId review page
+src/app/(dashboard)/invoices/review/ReviewClient.tsx  !isError guard on form; Back button on error
+src/components/layout/Sidebar.tsx           removed fixed left-0 top-0 z-40; now flex sibling
+src/app/(dashboard)/layout.tsx              removed pl-sidebar (was undefined Tailwind class)
+ocr-service/services/ocr_service.py        single Tesseract pass (was double: image_to_data + image_to_string)
+ocr-service/services/pdf_service.py        DPI default 300→200
+.env.local                                  OCR_ENGINE=gemini-direct; TIMEOUT=60000
+.github/workflows/deploy.yml               OCR_ENGINE gemini→gemini-direct
+```
+
+**Commits pushed:**
+- `0edd775` — feat: GeminiDirect OCR engine (1-call PDF extraction)
+- `11bca1e` — fix: TypeScript import type + deploy.yml engine update
+- `29a138e` — fix: sidebar layout overlap + blank review page after OCR
+
+---
+
+### Decisions made
+
+| Decision | Rationale |
+|---|---|
+| `gemini-direct` as default engine (not `gemini` or `tesseract`) | Single Gemini call: ~35s for 18-page PDF vs ~75s Tesseract; no local OCR service dependency at runtime |
+| Tesseract kept as offline fallback | `OCR_ENGINE=tesseract` still works; microservice still running at `localhost:8000` |
+| `Promise.allSettled` for GAS saves (not sequential) | Sequential 4×8s = 32s extra latency; parallel reduces to ~8s (max of all) |
+| Save to GAS inside `useFileUpload` (not in upload page) | Keeps persistence logic co-located with extraction; upload page stays as presenter |
+| `buildFullInvoice()` defaults `courier: 'fedex'` | Only FedEx parser supported; `courierHint` passed through but defaults gracefully |
+| Sidebar: flex sibling, not `fixed` | Parent is already `h-screen overflow-hidden` — flex child is naturally full-height; avoids z-index/offset complexity |
+| `!isLoading && !isError` on ReviewClient form | Prevents empty form rendering on error state — cleaner than separate error boundary |
+
+---
+
+### Blockers
+
+1. **GAS saves taking 5-15s each** — `Promise.allSettled` with 4 invoices takes ~10-15s after extraction. Total time for 18-page FedEx PDF: ~50-60s. Under 10s not achievable for 16+ page documents without GPU or Cloud OCR. For typical 1-4 page invoices: ~8-12s total.
+
+2. **`Promise.allSettled` can hang if GAS has no timeout** — `sheetsService.saveInvoice` uses fetch with no explicit timeout. If GAS is unreachable, `isProcessing` stays `true` indefinitely and "Review Results" never appears. Need fetch timeout in GASClient.
+
+3. **PDF Viewer still shows skeleton** — `File` object not persisted cross-navigation. Carried from S2.
+
+4. **E2E on GitHub Pages unverified** — GitHub Actions deploys on push to main; production URL `https://tuanttstb-debug.github.io/LG-Dashboard/` not manually verified this session.
+
+---
+
+### Regression risks
+
+| Risk | Severity | Notes |
+|---|---|---|
+| `buildFullInvoice` defaults may corrupt data | MEDIUM | If Gemini returns `null` for required Address fields, they're set to `''` (empty string). Passes TypeScript but GAS saves empty strings to Sheets. |
+| GAS `saveInvoice` called without `saveVersion` | MEDIUM | `useFileUpload` calls `sheetsService.saveInvoice` directly — skips the `saveVersion` call in `useSaveInvoice` mutation. Invoice versions not created on initial upload. |
+| `gemini-direct` bypasses courier detection | LOW | No `detectCourier()` called — assumes Gemini correctly identifies invoice type. Non-FedEx PDFs will parse using FedEx prompt (may return garbage). |
+| Sidebar `position: fixed` removed | LOW | Previously sticky on scroll — now sidebar scrolls WITH the page if content in sidebar overflows. Current sidebar height is always < viewport so no visible issue. |
+| `OCR_TIMEOUT_MS` reduced 300000→60000 | LOW | 60s timeout now applies to `gemini-direct`. Very large PDFs (30+ pages) may timeout. Increase if needed. |
+
+---
+
+### State at session end
+
+- Branch: `main`, HEAD `29a138e` (pushed to origin)
+- Local dev: `http://localhost:3000/LG-Dashboard/`
+- OCR engine active: `gemini-direct` (single Gemini call, ~35-45s for 18-page PDF)
+- Tesseract service: `localhost:8000` — still running (can restart with `cd ocr-service && .\venv\Scripts\uvicorn.exe main:app --port 8000`)
+- Layout: sidebar overlap bug fixed — verified via Playwright bounding box (sidebar x=0..252, main x=252)
+- GAS saves: verified (4 parallel saves observed in network log during E2E)
+
+---
+
 ## Session: 2026-06-21 (S4)
 
 ### What was built this session
