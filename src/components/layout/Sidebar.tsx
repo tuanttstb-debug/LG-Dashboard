@@ -29,7 +29,7 @@ export function Sidebar() {
   };
 
   return (
-    <aside className="fixed left-0 top-0 z-40 flex h-screen w-sidebar flex-col bg-brand-900">
+    <aside className="flex h-screen w-sidebar shrink-0 flex-col bg-brand-900">
       {/* Brand */}
       <div className="flex items-center gap-3 px-6 py-5 border-b border-white/10">
         <div className="flex h-9 w-9 items-center justify-center rounded-input bg-accent">

@@ -8,6 +8,7 @@ export interface UploadFile {
   status: FileUploadStatus;
   progress: number;
   result?: Partial<Invoice>[];
+  savedIds?: string[];
   error?: string;
   courierHint?: string | null;
 }

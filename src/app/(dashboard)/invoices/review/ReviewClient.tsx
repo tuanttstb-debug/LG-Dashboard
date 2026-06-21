@@ -147,12 +147,16 @@ export function ReviewClient() {
       )}
 
       {isError && (
-        <div className="flex flex-1 items-center justify-center text-danger">
-          Failed to load invoice. Check GAS connection.
+        <div className="flex flex-1 flex-col items-center justify-center gap-4 text-danger">
+          <p>Failed to load invoice. Check GAS connection.</p>
+          <Button variant="ghost" size="sm" onClick={() => router.push(ROUTES.invoices)}>
+            <ArrowLeft className="h-4 w-4" />
+            Back to list
+          </Button>
         </div>
       )}
 
-      {!isLoading && (
+      {!isLoading && !isError && (
         <div className="flex flex-1 gap-0 overflow-hidden">
           <div className="w-[45%] shrink-0 overflow-hidden border-r border-gray-100 p-4">
             <PDFSkeleton />

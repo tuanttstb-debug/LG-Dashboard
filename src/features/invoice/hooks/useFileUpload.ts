@@ -4,8 +4,44 @@ import { useState, useCallback } from 'react';
 import { toast } from 'sonner';
 import { generateId } from '@/lib/utils';
 import { aiService } from '@/services/ai/AIService';
+import { sheetsService } from '@/services/google/sheets/SheetsService';
 import type { UploadFile } from '../types/upload';
-import type { Invoice } from '@/types';
+import type { Invoice, CourierType } from '@/types';
+
+const DEFAULT_ADDRESS: Invoice['shipper'] = {
+  name: '',
+  company: null,
+  address1: '',
+  address2: null,
+  city: '',
+  state: null,
+  postalCode: '',
+  country: '',
+  phone: null,
+};
+
+function buildFullInvoice(partial: Partial<Invoice>, courierHint: string | null): Invoice {
+  const now = new Date().toISOString();
+  return {
+    id: generateId('inv'),
+    courier: (courierHint as CourierType | null) ?? 'fedex',
+    invoiceNumber: partial.invoiceNumber ?? '',
+    invoiceDate: partial.invoiceDate ?? now.slice(0, 10),
+    shipper: { ...DEFAULT_ADDRESS, ...partial.shipper, name: partial.shipper?.name ?? '', address1: partial.shipper?.address1 ?? '', city: partial.shipper?.city ?? '', postalCode: partial.shipper?.postalCode ?? '', country: partial.shipper?.country ?? '' },
+    consignee: { ...DEFAULT_ADDRESS, ...partial.consignee, name: partial.consignee?.name ?? '', address1: partial.consignee?.address1 ?? '', city: partial.consignee?.city ?? '', postalCode: partial.consignee?.postalCode ?? '', country: partial.consignee?.country ?? '' },
+    packages: partial.packages ?? [],
+    charges: partial.charges ?? [],
+    totalCharge: partial.totalCharge ?? 0,
+    currency: partial.currency ?? 'VND',
+    status: 'pending',
+    version: 1,
+    pdfUrl: null,
+    excelUrl: null,
+    extractedAt: now,
+    createdAt: now,
+    updatedAt: now,
+  };
+}
 
 const fileToBase64 = (file: File): Promise<string> =>
   new Promise((resolve, reject) => {
@@ -95,10 +131,24 @@ export function useFileUpload() {
           throw new Error(result.error?.message ?? 'Extraction failed');
         }
 
+        const partials = (result.data ?? []) as Partial<Invoice>[];
+        const invoices = partials.map((p) =>
+          buildFullInvoice(p, uploadFile.courierHint ?? null),
+        );
+
+        // Save all invoices to GAS in parallel — best-effort
+        const saveResults = await Promise.allSettled(
+          invoices.map((inv) => sheetsService.saveInvoice(inv)),
+        );
+        const savedIds = invoices
+          .filter((_, i) => saveResults[i]?.status === 'fulfilled')
+          .map((inv) => inv.id);
+
         updateFile(uploadFile.id, {
           status: 'done',
           progress: 100,
-          result: (result.data ?? []) as Partial<Invoice>[],
+          result: partials,
+          savedIds,
         });
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Unknown error';

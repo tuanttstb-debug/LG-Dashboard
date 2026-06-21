@@ -36,9 +36,8 @@ export default function UploadPage() {
   const hasErrors = stats.error > 0;
 
   const handleReviewAll = () => {
-    // Phase 2: navigate to review with batch results
-    // For now navigate to invoice list
-    router.push(ROUTES.invoices);
+    const firstId = queue.find((f) => f.savedIds?.length)?.savedIds?.[0];
+    router.push(firstId ? ROUTES.review(firstId) : ROUTES.invoices);
   };
 
   return (
